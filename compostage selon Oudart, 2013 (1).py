@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[3]:
 
 
 import numpy as np
@@ -14,7 +14,7 @@ from scipy.special import logsumexp
 from math import exp,expm1
 
 
-# In[17]:
+# In[49]:
 
 
 class compostage:
@@ -22,7 +22,8 @@ class compostage:
                 pO2 = 2, K_O2 = 3, k_hr = 1, NXrb = 2, k_hs = 3, NX_sb= 4, tNXh = 3, µ_a=2, NX_a=3, Y_NO3=1,
                 Kh=5, pIntLG=1, GP=2, Ts=1, rho_airsec=1, flim_hum=1,Vair=2, b_h=2, b_a = 3, f_Iaero = 0.2, t_NXi = 1, 
                  pmax_denit=2, f_limNO3 = 1, f_limTdenit = 1, WFPS = 1, pWFPS_denit = 0.5, pN2O_nit = 1, pN2O_denit= 0.3, 
-                 Si = 1, Y_CH4=2, temps = 10, v_max = 1, Km = 0.5, CH4_out = 1 , beta = 0.5):
+                 Si = 1, Y_CH4=2, temps = 10, v_max = 1, Km = 0.5, CH4_out = 1 , beta = 0.5, f_OUR = 0.5, Y_CO2 =0.5,
+                 Y_h = 0.5):
         self.echelle = echelle
         self.procede = procede
         self.emissions = emissions
@@ -65,14 +66,24 @@ class compostage:
         self.Y_CH4 = Y_CH4 #coefficient de rendement de CH4
         self.temps = temps
         self.v_max = v_max #maximum methane oxidation rate 
-        self.CH4_out = CH4_out #methane dans la partie aerobic, à étudier : diffusion de la partie anaérobique vers aérobique
+        self.CH4_out = CH4_out #methane dans la partie aerobic, à étudier : diffusion de CH4 de la partie anaérobique vers aérobique
         self.Km = Km #half saturation constant
         self.beta = beta #mass conversion factor of VS to VS_aero
+        self.f_OUR = f_OUR #fonction de limitattion de l'oxydation du méthane par l'O2
+        self.Y_CO2 = Y_CO2 #rendement de production en CO2
+        self.Y_h = Y_h #rendement spécifique de la biomasse sur le substrat
         
         print('essai codage', self.echelle)
+        
+    #-----------------------------------------------
+    "Durée du compostage"
+    
+    def durée(self):
+        self.temps = np.arange(0,90,1)
+        return [self.temps[0], self.temps[89]]
+    
     
     "Emission de NH3"
-    #---------------------------------
     def resolution(self): #azote disponible pour les microorganismes
         def system(temps, Y): 
             self.µ_h=Y[0]
@@ -91,8 +102,8 @@ class compostage:
                                
             return [self.µ_h, self.flimNav, self.dazote_dtemps, self.dXh_dtemps]
         
-        self.solution = solve_ivp(system, [0, 100], [0, 1, 3, 2], method = 'RK45')
-        self.µ_h = self.solution.y[0]
+        self.solution = solve_ivp(system, self.durée() , [0, 1, 3, 2], method = 'RK45')
+        self.µ_h = self.solution.y[0] 
         self.flimNav=self.solution.y[1]
         self.azote=self.solution.y[2]
         self.Xh = self.solution.y[3]
@@ -197,54 +208,66 @@ class compostage:
         return self.CH4gen
 #oxydation de CH4
     def oxyCH4(self):
-        self.v_oxi = (self.v_max*self.CH4_out*self.beta)/(self.Km+self.CH4_out)
+        self.v_oxi = (self.v_max*self.prodCH4()*self.f_OUR*self.beta)/(self.Km+self.prodCH4())
+        #la fonction de limitation par la température devrait être introduite, mais nous n'avons pas les données
         return self.v_oxi
     
     def CH4emi(self):
         return self.prodCH4() - self.oxyCH4()
+#-------------------------------------------------------------
+
+    "Emission de CO2, Oudart"
+    def CO2emis(self): #il s'agit du CO2 rpoduit par la croissance microbienne sans l'oxydation du méthane
+        self.CO2 = (self.Y_CO2/self.Y_h) *self.resolution()[0][0][55]*self.resolution()[3][0][55]
+        return self.CO2         
 
 
-    "Emission de CO2"
-    
-    
-    
-            
-
-
-# In[18]:
+# In[50]:
 
 
 compostage1=compostage('grande', 'andain retourné', 'NH3', 100)
 
 
-# In[19]:
+# In[51]:
+
+
+compostage1.durée()
+
+
+# In[11]:
 
 
 compostage1.prodNO3()
 
 
-# In[20]:
+# In[12]:
 
 
 compostage1.prodCH4()
 
 
-# In[70]:
+# In[13]:
 
 
 compostage1.consNO3()
 
 
-# In[21]:
+# In[14]:
 
 
 compostage1.oxyCH4()
 
 
-# In[22]:
+# In[8]:
 
 
 compostage1.CH4emi()
+
+
+# In[15]:
+
+
+compostage1.CO2emis()
 
 
 # In[58]:
@@ -283,7 +306,7 @@ compostage1.Ninerte()
 compostage1.resolution()
 
 
-# In[5]:
+# In[53]:
 
 
 compostage1.resolution()[1]
@@ -429,11 +452,4 @@ def emissionNH3(NH3, temps):
     rho_airsec = 12
     Vair = 10 #volume d'air dans le tas
     return self(Qair*flim_hum*NH3gaz)/(rho_airsec*Vair)
-
-
-# In[55]:
-
-
-NH3 = solve_ivp(emissionNH3, [0,100], [0])
-plt.plot (NH3.temps, NH3.y[0])
 
