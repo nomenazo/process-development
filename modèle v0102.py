@@ -1,0 +1,307 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[107]:
+
+
+import numpy as np
+import pandas as pd
+from pandas import Series,DataFrame
+from scipy.integrate import solve_ivp
+from scipy.integrate import odeint
+import matplotlib.pyplot as plt
+from scipy.special import logsumexp
+from math import exp,expm1
+from math import sqrt
+
+
+# In[108]:
+
+
+pip install xlrd
+
+
+# In[109]:
+
+
+import xlrd
+
+
+# In[110]:
+
+
+data = pd.read_excel("Data.xlsx",'stoe')
+data
+
+
+# In[111]:
+
+
+data.columns
+
+
+# In[112]:
+
+
+data.iloc[2,1]
+
+
+# In[113]:
+
+
+class IndexSub:
+    def __init__(self):
+        self.G = 0
+        self.P = 1
+        self.L = 2
+        self.HE = 3
+        self.CE = 4
+        self.LG = 5
+    
+    def biochm(self):
+        return ['G','P','L','HE','CE','LG']
+
+ix = IndexSub()
+
+
+# In[114]:
+
+
+E1=IndexSub()
+
+
+# In[115]:
+
+
+E1.biochm()
+
+
+# In[121]:
+
+
+class Compostage:
+    def __init__(self, data_path, fi = 0.5, QO2 = 3):
+        
+        with pd.ExcelFile(data_path) as f:
+            #Composition initiale de la matière 
+            composition = pd.read_excel(data_path, 'Variables', index_col=0).fillna(0.0)
+            mass = [composition[c] for c in composition.columns]
+            self.mass = mass
+            
+            #Paramètres cinétiques et stochiométriques
+            parameters = pd.read_excel(data_path, 'kinetics', index_col=0).fillna(0.0)
+            Valeurs = [parameters[c] for c in parameters.columns]
+            self.Valeurs = Valeurs
+            
+            #paramètres stochiométriques
+            stoech = pd.read_excel(data_path, 'stoe', index_col=0).fillna(0.0)
+            val = [stoech[c] for c in stoech.columns]
+            self.val=val
+            
+        self.fi = fi
+        self.QO2 = QO2 #Débit d'air entrant, modèles différents pour chaque type d'aération
+            
+            #paramètres d'opération à résoudre
+    
+    def v(self):
+        self.massetotale = self.mass[0]
+        return self.massetotale
+    
+    def ki(self):
+        self.vitesse=self.Valeurs[0]
+        return self.vitesse
+    
+    def sto(self):
+        self.stoe=self.val[0]
+        return self.stoe
+        
+    
+    def resolution(self):
+        def system(t, Y):
+            self.C=Y[0]
+            self.P=Y[1]
+            self.L=Y[2]
+            self.H=Y[3]
+            self.CE=Y[4]
+            self.LG=Y[5]
+            self.Xi=Y[6]
+            self.Sc=Y[7]
+            self.Sp=Y[8]
+            self.Sl=Y[9]
+            self.Sh=Y[10]
+            self.Slg=Y[11]
+            self.Xmb=Y[12]
+            self.Xtb=Y[13]
+            self.Xma=Y[14]
+            self.Xta=Y[15]
+            self.Xmf=Y[16]
+            self.Xtf=Y[17]
+            self.Xdb=Y[18]
+            self.sO2=Y[19]
+            #fonction de limitation
+            self.fO2=Y[20]
+            #paramètres cinétiques affectés
+            self.µmb=Y[21]
+            self.µtb=Y[22]
+            self.µma=Y[23]
+            self.µta=Y[24]
+            self.µmf=Y[25]
+            self.µtf=Y[26]
+            #constantes d'hydrolyses affectés
+            self.kh1C=Y[27]
+            self.kh2P=Y[28]
+            self.kh3L=Y[29]
+            self.kh4C=Y[30]
+            self.kh5P=Y[31]
+            self.kh6L=Y[32]
+            self.kh7H=Y[33]
+            self.kh8CE=Y[34]
+            self.kh9LG=Y[35]
+            self.kh10H=Y[36]
+            self.kh11CE=Y[37]
+            self.kh12LG=Y[38]
+            self.faB_C=Y[39]
+            self.faB_L=Y[40]
+            self.faA_C=Y[41]
+            self.faA_L=Y[42]
+            self.faA_H=Y[43]
+            self.faF_C=Y[44]
+            self.faF_L=Y[45]
+            self.faF_H=Y[46]
+            self.faF_LG=Y[47]
+          
+            
+            #Hydrolysis of substrate by microorganisms
+            self.kh1C = self.ki()[0]*(self.Xmb/((self.ki()[29]*self.Xmb)+self.C))
+            self.kh2P = self.ki()[1]*(self.Xmb/((self.ki()[29]*self.Xmb)+self.P))
+            self.kh3L = self.ki()[2]*(self.Xmb/((self.ki()[29]*self.Xmb)+self.L))
+            self.kh4C = self.ki()[3]*(self.Xtb/((self.ki()[29]*self.Xtb)+self.C))
+            self.kh5P = self.ki()[4]*(self.Xtb/((self.ki()[29]*self.Xtb)+self.P))
+            self.kh6L = self.ki()[5]*(self.Xtb/((self.ki()[29]*self.Xtb)+self.L))
+            self.kh7H = self.ki()[6]*(self.Xta/((self.ki()[29]*self.Xta)+self.H))
+            self.kh8CE = self.ki()[7]*(self.Xtf/((self.ki()[29]*self.Xtf)+self.CE))
+            self.kh9LG = self.ki()[8]*(self.Xtf/((self.ki()[29]*self.Xtf)+self.LG))
+            self.kh10H = self.ki()[9]*(self.Xma/((self.ki()[29]*self.Xma)+self.H))
+            self.kh11CE = self.ki()[10]*(self.Xmf/((self.ki()[29]*self.Xmf)+self.CE))
+            self.kh12LG = self.ki()[11]*(self.Xmf/((self.ki()[29]*self.Xmf)+self.LG))
+            
+            #Growth of microorganisms
+            self.µmb = self.ki()[12]*self.fO2
+            self.µtb = self.ki()[13]*self.fO2
+            self.µma = self.ki()[14]*self.fO2
+            self.µta = self.ki()[15]*self.fO2
+            self.µmf = self.ki()[16]*self.fO2
+            self.µtf = self.ki()[17]*self.fO2
+            
+            #Growth limitations
+            #(1)Oxygen
+            self.fO2 = self.sO2 /(self.ki()['kO2']+self.sO2)
+            
+            #(2)Substrate availability
+            ##for bacteries:
+            self.faB_C = self.Sc/(self.Sc+self.Sl)  ###availability of Sc
+            self.faB_L = self.Sl/(self.Sc+self.Sl)  ###availability of Sc
+            ##for actinomycetes
+            self.faA_C = self.Sc/(self.Sc+self.Sl+self.Sh)
+            self.faA_L= self.Sl/(self.Sc+self.Sl+self.Sh)
+            self.faA_H= self.Sh/(self.Sc+self.Sl+self.Sh)
+            ##for fungi
+            self.faF_C = self.Sc/(self.Sc+self.Sl+self.Sh+self.Slg)
+            self.faF_L= self.Sl/(self.Sc+self.Sl+self.Sh+self.Slg)
+            self.faF_H= self.Sh/(self.Sc+self.Sl+self.Sh+self.Slg)
+            self.faF_LG= self.Slg/(self.Sc+self.Sl+self.Sh+self.Slg)
+            
+
+            
+            #equations différentielles
+            self.dC_dt= self.C * (-self.kh1C - self.kh4C)
+            
+            self.dP_dt = - (self.kh2P)*self.P - (self.kh5P)*self.P + (1 - self.fi)*(self.ki()[24])*self.Xdb
+            
+            self.dL_dt = self.L * (-self.kh3L - self.kh6L)
+            
+            self.dH_dt = self.H * (-self.kh7H - self.kh10H)
+            
+            self.dCE_dt= self.CE * (-self.kh8CE - self.kh11CE)
+            
+            self.dLG_dt= self.LG * (-self.kh9LG - self.kh12LG)
+            
+            self.dXi_dt = self.fi * self.ki()[24]*self.Xdb
+            
+            self.dSc_dt = self.C * (self.kh1C + self.kh4C) +self.CE * (self.kh8CE + self.kh11CE)            -(self.µmb*self.faB_C*self.Xmb)-(self.µtb*self.faB_C*self.Xtb)-(self.µma*self.faA_C*self.Xma)-(self.µta*self.faA_C*self.Xta)            - (self.µmf*self.faF_C*self.Xmf) - (self.µtf*self.faF_C*self.Xtf)
+            
+            self.dSp_dt = self.P *(self.kh2P+self.kh5P) - (self.µmb*self.Xmb)-(self.µtb*self.Xtb)-            (self.µma*self.Xma)-(self.µta*self.Xta)-(self.µmf*self.Xmf) - (self.µtf*self.Xtf)
+            
+            self.dSl_dt = self.L *(self.kh3L + self.kh6L)-(self.µmb*self.faB_L*self.Xmb)-(self.µtb*self.faB_L*self.Xtb)-            (self.µma*self.faA_L*self.Xma)-(self.µta*self.faA_L*self.Xta)-(self.µmf*self.faF_L*self.Xmf) - (self.µtf*self.faF_L*self.Xtf)
+            
+            self.dSh_dt = self.H*(self.kh7H + self.kh10H)-(self.µma*self.faA_H*self.Xma)-(self.µta*self.faA_H*self.Xta)            -(self.µmf*self.faF_H*self.Xmf) - (self.µtf*self.faF_H*self.Xtf)
+            
+            self.dSlg_dt = self.LG * (self.kh9LG + self.kh12LG)-(self.µmf*self.faF_LG*self.Xmf) - (self.µtf*self.faF_LG*self.Xtf)
+            
+            self.dXmb_dt = (self.Xmb * self.µmb)*((self.faB_C*self.sto()['a'])+self.sto()['b']+(self.faB_L*self.sto()['c']))-(self.ki()[18]*self.Xmb)
+            
+            self.dXtb_dt = (self.Xtb * self.µtb)*((self.faB_C*self.sto()['a'])+self.sto()['b']+(self.faB_L*self.sto()['c']))-(self.ki()[19]*self.Xtb)
+            
+            self.dXma_dt = (self.Xma * self.µma)*((self.faA_C*self.sto()['a'])+self.sto()['b']+(self.faA_L*self.sto()['c'])+(self.faA_H*self.sto()['d']))            -(self.ki()[20]*self.Xma)
+            
+            self.dXta_dt = (self.Xta * self.µta)*((self.faA_C*self.sto()['a'])+self.sto()['b']+(self.faA_L*self.sto()['c'])+(self.faA_H*self.sto()['d']))            -(self.ki()[21]*self.Xta)
+            
+            self.dXmf_dt = (self.Xmf*self.µmf)*((self.faF_C*self.sto()['e'])+(self.sto()['f'])+(self.faF_L*self.sto()['g'])+(self.faF_H*self.sto()['h'])+(self.faF_LG*self.sto()['i']))            -(self.sto()['z']*self.ki()[22]*self.Xmf)
+            
+            self.dXtf_dt= (self.Xtf *self.µtf)*((self.faF_C*self.sto()['e'])+self.sto()['f']+(self.faF_L*self.sto()['g'])+            (self.faF_H*self.sto()['h'])+(self.faF_LG*self.sto()['i']))-(self.sto()['z']*self.ki()[23]*self.Xtf)
+            
+            
+            
+            self.dXdb_dt =(self.ki()[18]*self.Xmb)+(self.ki()[19]*self.Xtb)+(self.ki()[20]*self.Xma)+(self.ki()[21]*self.Xta)+(self.ki()[22]*self.Xmf)+(self.ki()[23]*self.Xtf)
+            
+            self.dsO2_dt = self.QO2 - ((56-(5*(self.sto()['a']+self.sto()['b']+self.sto()['c'])))*(self.Xmb + self.Xtb))-            ((66 - 5*(self.sto()['a']+self.sto()['b']+self.sto()['c']+self.sto()['d']))*(self.Xma+self.Xta))-            ((367/4-((21/2)*(self.sto()['e']+self.sto()['f']+self.sto()['g']+self.sto()['h']+self.sto()['i'])))*(self.Xmf+self.Xtf))
+            
+
+            
+            
+            
+            
+            
+            return [self.dC_dt, self.dP_dt, self.dL_dt, self.dH_dt, self.dCE_dt,self.dLG_dt,self.dXi_dt, self.dSc_dt,                     self.dSp_dt, self.dSl_dt, self.dSh_dt, self.dSlg_dt,self.dXmb_dt, self.dXtb_dt, self.dXma_dt,                    self.dXta_dt,self.dXmf_dt,self.dXtf_dt,self.dXdb_dt, self.dsO2_dt, self.fO2, self.µmb, self.µtb, self.µma,                   self.µta, self.µmf, self.µtf, self.kh1C, self.kh2P, self.kh3L, self.kh4C, self.kh5P, self.kh6L, self.kh7H,                   self.kh8CE, self.kh9LG, self.kh10H, self.kh11CE, self.kh12LG,self.faB_C,self.faB_L,self.faA_C,self.faA_L,self.faA_H,self.faF_C,self.faF_L,                   self.faF_H,self.faF_LG]
+        
+                
+            
+        self.solution = solve_ivp(system, [0,10], [self.v()['G'],self.v()['P'],self.v()['L'],self.v()['HE'],self.v()['CE'],self.v()['LG'], self.v()['Xi'],self.v()['Sc'],self.v()['Sp'],self.v()['Sl'],self.v()['Sh'],self.v()['Slg'],                                             self.v()['Xmb'],self.v()['Xtb'],self.v()['Xma'],self.v()[15],self.v()['Xmf'],self.v()['Xtf'],self.v()['Xdb'],self.v()['S(O2)'], 0, self.ki()[12],                                                  self.ki()[13],self.ki()[14],self.ki()[15],self.ki()[16],self.ki()[17],self.ki()[0],self.ki()[1],self.ki()[2],                                                  self.ki()[3],self.ki()[4],self.ki()[5],self.ki()[6],self.ki()[7],self.ki()[8],self.ki()[9],self.ki()[10],                                                  self.ki()[11],0,0,0,0,0,0,0,0,0], method='RK45', max_step=0.01)
+        
+        
+        return plt.plot(self.solution.t, self.solution.y[0])
+                           
+                           
+            
+      
+
+
+# In[122]:
+
+
+Data = 'Data.xlsx'
+
+
+# In[123]:
+
+
+essai = Compostage(Data)
+
+
+# In[124]:
+
+
+essai.ki()[0]
+
+
+# In[ ]:
+
+
+essai.resolution()
+
+
+# In[61]:
+
+
+growth = [essai.ki()['µmb'],essai.ki()['µtb'], essai.ki()['µma'], essai.ki()['µta'], essai.ki()['µmf'], essai.ki()['µtf']]
+
