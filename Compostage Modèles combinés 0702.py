@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[107]:
+# In[201]:
 
 
 import numpy as np
@@ -15,80 +15,80 @@ from math import exp,expm1
 from math import sqrt
 
 
-# In[108]:
+# In[202]:
 
 
 pip install xlrd
 
 
-# In[109]:
+# In[122]:
+
+
+data ='Data.xlsx'
+
+
+# In[123]:
+
+
+operation = pd.read_excel(data, 'tech', index_col=0)
+operation
+
+
+# In[171]:
+
+
+X= operation["u"]
+X.loc['hc']
+
+
+# In[125]:
+
+
+operation.loc['CC','u']
+
+
+# In[130]:
+
+
+operation["u"]
+
+
+# In[131]:
+
+
+operation.iloc[0,:]
+
+
+# In[133]:
+
+
+operation.loc['hc',:]
+
+
+# In[134]:
 
 
 import xlrd
 
 
-# In[110]:
-
-
-data = pd.read_excel("Data.xlsx",'stoe')
-data
-
-
-# In[111]:
-
-
-data.columns
-
-
-# In[112]:
-
-
-data.iloc[2,1]
-
-
-# In[113]:
-
-
-class IndexSub:
-    def __init__(self):
-        self.G = 0
-        self.P = 1
-        self.L = 2
-        self.HE = 3
-        self.CE = 4
-        self.LG = 5
-    
-    def biochm(self):
-        return ['G','P','L','HE','CE','LG']
-
-ix = IndexSub()
-
-
-# In[114]:
-
-
-E1=IndexSub()
-
-
-# In[115]:
-
-
-E1.biochm()
-
-
-# In[121]:
+# In[216]:
 
 
 class Compostage:
-    def __init__(self, data_path, fi = 0.5, QO2 = 3):
+    def __init__(self, data_path, scale, region, fi = 0.5, QO2 = 3, T=25):
+        
+        self.scale = scale
+        self.region = region
+        self.T = T #waiting for the entire energy balance equation
         
         with pd.ExcelFile(data_path) as f:
-            #Composition initiale de la matière 
+            
+            #variables d'état 
             composition = pd.read_excel(data_path, 'Variables', index_col=0).fillna(0.0)
             mass = [composition[c] for c in composition.columns]
             self.mass = mass
             
-            #Paramètres cinétiques et stochiométriques
+            #Paramètres cinétiques
             parameters = pd.read_excel(data_path, 'kinetics', index_col=0).fillna(0.0)
             Valeurs = [parameters[c] for c in parameters.columns]
             self.Valeurs = Valeurs
@@ -98,8 +98,18 @@ class Compostage:
             val = [stoech[c] for c in stoech.columns]
             self.val=val
             
+            #paramètres d'opérations
+            oper = pd.read_excel(data_path, 'tech', index_col=0).fillna(0.0)
+            self.cond = oper['u']
+            self.area = oper['A']
+            
+            #paramètres régionaux
+            reg = pd.read_excel(data_path, 'reg', index_col=0).fillna(0.0)
+            self.Temp = reg['Ta'] #température ambiante
+            
+            
         self.fi = fi
-        self.QO2 = QO2 #Débit d'air entrant, modèles différents pour chaque type d'aération
+        self.QO2 = QO2 #Débit d'air entrant, modèles différents pour chaque type d'aération, à résoudre
             
             #paramètres d'opération à résoudre
     
@@ -114,6 +124,32 @@ class Compostage:
     def sto(self):
         self.stoe=self.val[0]
         return self.stoe
+    
+    def U(self):
+        if self.scale == 'home composting':
+            return self.cond['hc']
+        elif self.scale == 'community composting':
+            return self.cond['CC']
+        elif self.scale =='industrial composting':
+            return self.cond['IC']
+        else:
+            print ("Unknown technology")
+    
+    def A(self):
+        if self.scale == 'home composting':
+            return self.area['hc']
+        elif self.scale == 'community composting':
+            return self.area['CC']
+        elif self.scale =='industrial composting':
+            return self.area['IC']
+        else:
+            print ("Unknown technology")
+    
+    def Ta(self):
+        if self.region == 'France':
+            return self.Temp['FR']
+        else:
+            return self.Temp['GLO']
         
     
     def resolution(self):
@@ -169,6 +205,10 @@ class Compostage:
             self.faF_L=Y[45]
             self.faF_H=Y[46]
             self.faF_LG=Y[47]
+            #emissions
+            self.CO2=Y[48]
+            #Evolution de la température
+            #self.T = Y[48]
           
             
             #Hydrolysis of substrate by microorganisms
@@ -199,17 +239,17 @@ class Compostage:
             
             #(2)Substrate availability
             ##for bacteries:
-            self.faB_C = self.Sc/(self.Sc+self.Sl)  ###availability of Sc
-            self.faB_L = self.Sl/(self.Sc+self.Sl)  ###availability of Sc
+            self.faB_C = self.Sc/np.exp(logsumexp(self.Sc+self.Sl))  ###availability of Sc
+            self.faB_L = self.Sl/np.exp(logsumexp(self.Sc+self.Sl))  ###availability of Sc
             ##for actinomycetes
-            self.faA_C = self.Sc/(self.Sc+self.Sl+self.Sh)
-            self.faA_L= self.Sl/(self.Sc+self.Sl+self.Sh)
-            self.faA_H= self.Sh/(self.Sc+self.Sl+self.Sh)
+            self.faA_C = self.Sc/np.exp(logsumexp(self.Sc+self.Sl+self.Sh))
+            self.faA_L= self.Sl/np.exp(logsumexp(self.Sc+self.Sl+self.Sh))
+            self.faA_H= self.Sh/np.exp(logsumexp(self.Sc+self.Sl+self.Sh))
             ##for fungi
-            self.faF_C = self.Sc/(self.Sc+self.Sl+self.Sh+self.Slg)
-            self.faF_L= self.Sl/(self.Sc+self.Sl+self.Sh+self.Slg)
-            self.faF_H= self.Sh/(self.Sc+self.Sl+self.Sh+self.Slg)
-            self.faF_LG= self.Slg/(self.Sc+self.Sl+self.Sh+self.Slg)
+            self.faF_C = self.Sc/np.exp(logsumexp(self.Sc+self.Sl+self.Sh+self.Slg))
+            self.faF_L= self.Sl/np.exp(logsumexp(self.Sc+self.Sl+self.Sh+self.Slg))
+            self.faF_H= self.Sh/np.exp(logsumexp(self.Sc+self.Sl+self.Sh+self.Slg))
+            self.faF_LG= self.Slg/np.exp(logsumexp(self.Sc+self.Sl+self.Sh+self.Slg))
             
 
             
@@ -250,58 +290,70 @@ class Compostage:
             
             self.dXtf_dt= (self.Xtf *self.µtf)*((self.faF_C*self.sto()['e'])+self.sto()['f']+(self.faF_L*self.sto()['g'])+            (self.faF_H*self.sto()['h'])+(self.faF_LG*self.sto()['i']))-(self.sto()['z']*self.ki()[23]*self.Xtf)
             
-            
-            
             self.dXdb_dt =(self.ki()[18]*self.Xmb)+(self.ki()[19]*self.Xtb)+(self.ki()[20]*self.Xma)+(self.ki()[21]*self.Xta)+(self.ki()[22]*self.Xmf)+(self.ki()[23]*self.Xtf)
             
-            self.dsO2_dt = self.QO2 - ((56-(5*(self.sto()['a']+self.sto()['b']+self.sto()['c'])))*(self.Xmb + self.Xtb))-            ((66 - 5*(self.sto()['a']+self.sto()['b']+self.sto()['c']+self.sto()['d']))*(self.Xma+self.Xta))-            ((367/4-((21/2)*(self.sto()['e']+self.sto()['f']+self.sto()['g']+self.sto()['h']+self.sto()['i'])))*(self.Xmf+self.Xtf))
+            self.dsO2_dt = self.QO2 - (((self.µmb*self.Xmb)+(self.µtb*self.Xtb))*((self.faB_C*(6-(5*self.sto()['a'])))+((33/2)-(5*self.sto()['b']))+(self.faB_L*((134/4)-(5*(self.sto()['c']))))))-            (((self.µma*self.Xma)+(self.µta*self.Xta))*((self.faA_C*(6-(5*self.sto()['a'])))+((33/2)-(5*self.sto()['b']))+(self.faA_L*((134/4)-(5*self.sto()['c'])))+                                                      (self.faA_H*(10-(5*self.sto()['d'])))))-(((self.µmf*self.Xmf)+(self.µtf*self.Xtf))            *((self.faF_C*(6-((21/2)*self.sto()['e'])))+((33/2)-((21/2)*self.sto()['f']))+(self.faF_L*((139/4)-((21/2)*self.sto()['g'])))+(self.faF_H*(10-((21/2)*self.sto()['h'])))+             (self.faF_LG*((49/2)-((21/2)*self.sto()['i'])))))
             
-
+            self.dCO2_dt = ((self.µmb*self.Xmb)+(self.µtb*self.Xtb))*((self.faB_C*(6-(5*self.sto()['a'])))+(16-(5*self.sto()['b']))+(self.faB_L*(25-(5*(self.sto()['c'])))))+            ((self.µma*self.Xma)+(self.µta*self.Xta))*((self.faA_C*(6-(5*self.sto()['a'])))+(16-(5*self.sto()['b']))+(self.faA_L*(25-(5*self.sto()['c'])))+                                                      (self.faA_H*(10-(5*self.sto()['d']))))+((self.µmf*self.Xmf)+(self.µtf*self.Xtf))            *((self.faF_C*(6-(10*self.sto()['e'])))+(16-(10*self.sto()['f']))+(self.faF_L*(25-(10*self.sto()['g'])))+(self.faF_H*(10-(10*self.sto()['h'])))+             (self.faF_LG*(20-(10*self.sto()['i'])))) #Sole-Mauri considers a transfer of CO2 dissolved in liquid phase to gas phase
+            
+            ##Energy balance
+            #a-Heat transfer by conduction
+            self.dQcond_dt = self.U() * self.A() *(self.T - self.Ta())
+            #b-biological heat
             
             
-            
-            
-            
-            return [self.dC_dt, self.dP_dt, self.dL_dt, self.dH_dt, self.dCE_dt,self.dLG_dt,self.dXi_dt, self.dSc_dt,                     self.dSp_dt, self.dSl_dt, self.dSh_dt, self.dSlg_dt,self.dXmb_dt, self.dXtb_dt, self.dXma_dt,                    self.dXta_dt,self.dXmf_dt,self.dXtf_dt,self.dXdb_dt, self.dsO2_dt, self.fO2, self.µmb, self.µtb, self.µma,                   self.µta, self.µmf, self.µtf, self.kh1C, self.kh2P, self.kh3L, self.kh4C, self.kh5P, self.kh6L, self.kh7H,                   self.kh8CE, self.kh9LG, self.kh10H, self.kh11CE, self.kh12LG,self.faB_C,self.faB_L,self.faA_C,self.faA_L,self.faA_H,self.faF_C,self.faF_L,                   self.faF_H,self.faF_LG]
+            return [self.dC_dt, self.dP_dt, self.dL_dt, self.dH_dt, self.dCE_dt,self.dLG_dt,self.dXi_dt, self.dSc_dt,                     self.dSp_dt, self.dSl_dt, self.dSh_dt, self.dSlg_dt,self.dXmb_dt, self.dXtb_dt, self.dXma_dt,                    self.dXta_dt,self.dXmf_dt,self.dXtf_dt,self.dXdb_dt, self.dsO2_dt, self.fO2, self.µmb, self.µtb, self.µma,                   self.µta, self.µmf, self.µtf, self.kh1C, self.kh2P, self.kh3L, self.kh4C, self.kh5P, self.kh6L, self.kh7H,                   self.kh8CE, self.kh9LG, self.kh10H, self.kh11CE, self.kh12LG,self.faB_C,self.faB_L,self.faA_C,self.faA_L,self.faA_H,self.faF_C,self.faF_L,                   self.faF_H,self.faF_LG, self.dCO2_dt, self.dQcond_dt]
         
                 
             
-        self.solution = solve_ivp(system, [0,10], [self.v()['G'],self.v()['P'],self.v()['L'],self.v()['HE'],self.v()['CE'],self.v()['LG'], self.v()['Xi'],self.v()['Sc'],self.v()['Sp'],self.v()['Sl'],self.v()['Sh'],self.v()['Slg'],                                             self.v()['Xmb'],self.v()['Xtb'],self.v()['Xma'],self.v()[15],self.v()['Xmf'],self.v()['Xtf'],self.v()['Xdb'],self.v()['S(O2)'], 0, self.ki()[12],                                                  self.ki()[13],self.ki()[14],self.ki()[15],self.ki()[16],self.ki()[17],self.ki()[0],self.ki()[1],self.ki()[2],                                                  self.ki()[3],self.ki()[4],self.ki()[5],self.ki()[6],self.ki()[7],self.ki()[8],self.ki()[9],self.ki()[10],                                                  self.ki()[11],0,0,0,0,0,0,0,0,0], method='RK45', max_step=0.01)
+        self.solution = solve_ivp(system, [0,10], [self.v()['G'],self.v()['P'],self.v()['L'],self.v()['HE'],self.v()['CE'],self.v()['LG'], self.v()['Xi'],self.v()['Sc'],self.v()['Sp'],self.v()['Sl'],self.v()['Sh'],self.v()['Slg'],                                             self.v()['Xmb'],self.v()['Xtb'],self.v()['Xma'],self.v()[15],self.v()['Xmf'],self.v()['Xtf'],self.v()['Xdb'],self.v()['S(O2)'], 0, self.ki()[12],                                                  self.ki()[13],self.ki()[14],self.ki()[15],self.ki()[16],self.ki()[17],self.ki()[0],self.ki()[1],self.ki()[2],                                                  self.ki()[3],self.ki()[4],self.ki()[5],self.ki()[6],self.ki()[7],self.ki()[8],self.ki()[9],self.ki()[10],                                                  self.ki()[11],0,0,0,0,0,0,0,0,0,0,0], method='RK45', max_step=0.01)
         
         
-        return plt.plot(self.solution.t, self.solution.y[0])
+        return plt.plot(self.solution.t, self.solution.y[19])
                            
                            
             
       
 
 
-# In[122]:
+# In[217]:
 
 
 Data = 'Data.xlsx'
 
 
-# In[123]:
+# In[218]:
 
 
-essai = Compostage(Data)
+essai = Compostage(Data, 'home composting', 'France')
 
 
-# In[124]:
+# In[219]:
 
 
 essai.ki()[0]
 
 
-# In[ ]:
+# In[220]:
+
+
+essai.U()
+
+
+# In[221]:
 
 
 essai.resolution()
 
 
-# In[61]:
+# In[194]:
 
 
-growth = [essai.ki()['µmb'],essai.ki()['µtb'], essai.ki()['µma'], essai.ki()['µta'], essai.ki()['µmf'], essai.ki()['µtf']]
+essai.A()
+
+
+# In[ ]:
+
+
+
 
