@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[201]:
+# In[1]:
 
 
 import numpy as np
@@ -15,71 +15,72 @@ from math import exp,expm1
 from math import sqrt
 
 
-# In[202]:
+# In[2]:
 
 
 pip install xlrd
 
 
-# In[122]:
+# In[3]:
 
 
 data ='Data.xlsx'
 
 
-# In[123]:
+# In[4]:
 
 
 operation = pd.read_excel(data, 'tech', index_col=0)
 operation
 
 
-# In[171]:
+# In[5]:
 
 
 X= operation["u"]
 X.loc['hc']
 
 
-# In[125]:
+# In[6]:
 
 
 operation.loc['CC','u']
 
 
-# In[130]:
+# In[7]:
 
 
 operation["u"]
 
 
-# In[131]:
+# In[8]:
 
 
 operation.iloc[0,:]
 
 
-# In[133]:
+# In[9]:
 
 
 operation.loc['hc',:]
 
 
-# In[134]:
+# In[10]:
 
 
 import xlrd
 
 
-# In[216]:
+# In[11]:
 
 
 class Compostage:
-    def __init__(self, data_path, scale, region, fi = 0.5, QO2 = 3, T=25):
+    def __init__(self, data_path, scale, region, fi = 0.5, QO2 = 3):
         
         self.scale = scale
         self.region = region
-        self.T = T #waiting for the entire energy balance equation
+        self.fi = fi
+        self.QO2 = QO2 #Débit d'air entrant, modèles différents pour chaque type d'aération, à résoudre
         
         with pd.ExcelFile(data_path) as f:
             
@@ -102,30 +103,26 @@ class Compostage:
             oper = pd.read_excel(data_path, 'tech', index_col=0).fillna(0.0)
             self.cond = oper['u']
             self.area = oper['A']
+            self.air = oper['Qair']
             
             #paramètres régionaux
             reg = pd.read_excel(data_path, 'reg', index_col=0).fillna(0.0)
             self.Temp = reg['Ta'] #température ambiante
             
-            
-        self.fi = fi
-        self.QO2 = QO2 #Débit d'air entrant, modèles différents pour chaque type d'aération, à résoudre
-            
-            #paramètres d'opération à résoudre
     
-    def v(self):
+    def v(self): #variables d'état
         self.massetotale = self.mass[0]
         return self.massetotale
     
-    def ki(self):
+    def ki(self): #paramètres cinétiques
         self.vitesse=self.Valeurs[0]
         return self.vitesse
     
-    def sto(self):
+    def sto(self): #coeff stoechiométriques
         self.stoe=self.val[0]
         return self.stoe
     
-    def U(self):
+    def U(self): #heat transfer coeff
         if self.scale == 'home composting':
             return self.cond['hc']
         elif self.scale == 'community composting':
@@ -135,7 +132,7 @@ class Compostage:
         else:
             print ("Unknown technology")
     
-    def A(self):
+    def A(self): #surface area
         if self.scale == 'home composting':
             return self.area['hc']
         elif self.scale == 'community composting':
@@ -145,7 +142,18 @@ class Compostage:
         else:
             print ("Unknown technology")
     
-    def Ta(self):
+    
+    def F(self): #airflow
+        if self.scale == 'home composting':
+            return self.air['hc']
+        elif self.scale == 'community composting':
+            return self.air['CC']
+        elif self.scale =='industrial composting':
+            return self.air['IC']
+        else:
+            print ("Unknown technology")
+    
+    def Ta(self): #ambiant temperature
         if self.region == 'France':
             return self.Temp['FR']
         else:
@@ -208,7 +216,11 @@ class Compostage:
             #emissions
             self.CO2=Y[48]
             #Evolution de la température
-            #self.T = Y[48]
+            self.Qcond=Y[49]
+            self.Qbio=Y[50]
+            self.Qconv=Y[51]
+            self.T=Y[52]
+            
           
             
             #Hydrolysis of substrate by microorganisms
@@ -299,14 +311,24 @@ class Compostage:
             ##Energy balance
             #a-Heat transfer by conduction
             self.dQcond_dt = self.U() * self.A() *(self.T - self.Ta())
-            #b-biological heat
+            #b-biological heat 
+            self.dQbio_dt = self.ki()['HcO2'] * self.CO2 
+            #c-convection by air flow (sensible heat change)
+            self.dQconv_dt = self.F()*(self.ki()['Ca']*(self.Ta()-self.T))
+            #d-latent heat change : evaporation
+            #self.dQvap_dt = self.F()*(self.ki()['hv']*(self.ki()['hout'] -self.ki()['hin'])
+            #c-temperature of compost
+            self.dT_dt = (self.Qbio - self.Qcond - self.Qconv)            /((self.ki()['Cp_C']*(self.C))+(self.ki()['Cp_L']*(self.L))              +(self.ki()['Cp_P']*(self.P))+(self.ki()['Cp_LG']*(self.LG))+(self.ki()['Cp_HE']*(self.H)))
             
             
-            return [self.dC_dt, self.dP_dt, self.dL_dt, self.dH_dt, self.dCE_dt,self.dLG_dt,self.dXi_dt, self.dSc_dt,                     self.dSp_dt, self.dSl_dt, self.dSh_dt, self.dSlg_dt,self.dXmb_dt, self.dXtb_dt, self.dXma_dt,                    self.dXta_dt,self.dXmf_dt,self.dXtf_dt,self.dXdb_dt, self.dsO2_dt, self.fO2, self.µmb, self.µtb, self.µma,                   self.µta, self.µmf, self.µtf, self.kh1C, self.kh2P, self.kh3L, self.kh4C, self.kh5P, self.kh6L, self.kh7H,                   self.kh8CE, self.kh9LG, self.kh10H, self.kh11CE, self.kh12LG,self.faB_C,self.faB_L,self.faA_C,self.faA_L,self.faA_H,self.faF_C,self.faF_L,                   self.faF_H,self.faF_LG, self.dCO2_dt, self.dQcond_dt]
         
-                
             
-        self.solution = solve_ivp(system, [0,10], [self.v()['G'],self.v()['P'],self.v()['L'],self.v()['HE'],self.v()['CE'],self.v()['LG'], self.v()['Xi'],self.v()['Sc'],self.v()['Sp'],self.v()['Sl'],self.v()['Sh'],self.v()['Slg'],                                             self.v()['Xmb'],self.v()['Xtb'],self.v()['Xma'],self.v()[15],self.v()['Xmf'],self.v()['Xtf'],self.v()['Xdb'],self.v()['S(O2)'], 0, self.ki()[12],                                                  self.ki()[13],self.ki()[14],self.ki()[15],self.ki()[16],self.ki()[17],self.ki()[0],self.ki()[1],self.ki()[2],                                                  self.ki()[3],self.ki()[4],self.ki()[5],self.ki()[6],self.ki()[7],self.ki()[8],self.ki()[9],self.ki()[10],                                                  self.ki()[11],0,0,0,0,0,0,0,0,0,0,0], method='RK45', max_step=0.01)
+            
+            
+            
+            return [self.dC_dt, self.dP_dt, self.dL_dt, self.dH_dt, self.dCE_dt,self.dLG_dt,self.dXi_dt, self.dSc_dt,                     self.dSp_dt, self.dSl_dt, self.dSh_dt, self.dSlg_dt,self.dXmb_dt, self.dXtb_dt, self.dXma_dt,                    self.dXta_dt,self.dXmf_dt,self.dXtf_dt,self.dXdb_dt, self.dsO2_dt, self.fO2, self.µmb, self.µtb, self.µma,                   self.µta, self.µmf, self.µtf, self.kh1C, self.kh2P, self.kh3L, self.kh4C, self.kh5P, self.kh6L, self.kh7H,                   self.kh8CE, self.kh9LG, self.kh10H, self.kh11CE, self.kh12LG,self.faB_C,self.faB_L,self.faA_C,self.faA_L,self.faA_H,self.faF_C,self.faF_L,                   self.faF_H,self.faF_LG, self.dCO2_dt, self.dQcond_dt, self.dQbio_dt, self.dQconv_dt, self.dT_dt]
+            
+        self.solution = solve_ivp(system, [0,10], [self.v()['G'],self.v()['P'],self.v()['L'],self.v()['HE'],self.v()['CE'],self.v()['LG'], self.v()['Xi'],self.v()['Sc'],self.v()['Sp'],self.v()['Sl'],self.v()['Sh'],self.v()['Slg'],                                             self.v()['Xmb'],self.v()['Xtb'],self.v()['Xma'],self.v()[15],self.v()['Xmf'],self.v()['Xtf'],self.v()['Xdb'],self.v()['S(O2)'], 0, self.ki()[12],                                                  self.ki()[13],self.ki()[14],self.ki()[15],self.ki()[16],self.ki()[17],self.ki()[0],self.ki()[1],self.ki()[2],                                                  self.ki()[3],self.ki()[4],self.ki()[5],self.ki()[6],self.ki()[7],self.ki()[8],self.ki()[9],self.ki()[10],                                                  self.ki()[11],0,0,0,0,0,0,0,0,0,0,0,0,0,25], method='RK45', max_step=0.01)
         
         
         return plt.plot(self.solution.t, self.solution.y[19])
@@ -316,31 +338,31 @@ class Compostage:
       
 
 
-# In[217]:
+# In[12]:
 
 
 Data = 'Data.xlsx'
 
 
-# In[218]:
+# In[13]:
 
 
 essai = Compostage(Data, 'home composting', 'France')
 
 
-# In[219]:
+# In[14]:
 
 
 essai.ki()[0]
 
 
-# In[220]:
+# In[15]:
 
 
 essai.U()
 
 
-# In[221]:
+# In[16]:
 
 
 essai.resolution()
